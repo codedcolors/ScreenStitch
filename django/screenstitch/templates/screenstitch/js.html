@@ -1,0 +1,7 @@
+<script type="text/javascript" src="/_ah/channel/jsapi"></script>
+<script>CLOSURE_NO_DEPS = true; var appengine = goog.appengine;</script>
+<script type="text/javascript" src="/js/screenstitch.js"></script>
+<script>
+  screenstitch.URI = '{% url screenstitch.views.connect_with_key %}';
+  {% if screenstitch_key %}screenstitch.KEY = '{{ screenstitch_key }}';{% endif %}
+</script>

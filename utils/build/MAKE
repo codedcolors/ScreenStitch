@@ -1,0 +1,191 @@
+#! /bin/sh
+# Call make debug namespace, make compiled namespace
+
+if [ $# -lt 3 ] ; then
+	echo "Not enough argument(s) provided, please use as follows:"
+	echo "  make debug filename outputpath -- or --"
+	echo "  make compiled filename outputpath"
+	echo "  make min filename outputpath"
+	exit 0
+fi
+
+build_info=".buildinfo"
+
+extern_cmd=""
+namespace_cmd=""
+root_cmd=""
+define_cmd=""
+
+write_build_info=""
+closure_lib_path=""
+closure_compiler_path="compiler/compiler.jar"
+output_path="$3"
+
+# Load the buildinfo file
+if [ -f "$build_info" ] ; then
+  product_found="no"
+  while read line; 
+  do 
+    [ -z "$line" ] && continue
+    while IFS=, read -r prop value; do
+      if [ "$prop" == CLOSURE_LIB_PATH ] ; then
+        closure_lib_path=$value
+      fi
+    done <<< $line
+  done < "$build_info"
+fi
+
+while [[ -z "$closure_lib_path" || ! -d "$closure_lib_path/closure" ]] ; do
+  read -p "Need relative path to closure library (ctrl-c to cancel):" closure_lib_path
+  if [ -z "$closure_lib_path" ] ; then
+    echo "No path specified."
+  elif [ ! -d "$closure_lib_path/closure" ] ; then
+    echo "Path is incorrect: $closure_lib_path"
+  fi
+  
+  write_build_info="yes"
+done
+
+echo "Path to closure library is:$closure_lib_path"
+
+# Rewrite the build info just in case
+if [ ! -z "$write_build_info" ] ; then
+  touch "$build_info"
+  echo CLOSURE_LIB_PATH,$closure_lib_path > "$build_info"
+fi
+
+if [[ -n "$NAMESPACES" ]] ; then
+  for namespace in $NAMESPACES 
+  do
+    namespace_cmd="--namespace=$namespace $namespace_cmd"
+  done
+fi
+
+if [[ -n "$DEFINES" ]] ; then
+  for define in $DEFINES 
+  do
+    define_cmd="--compiler_flags=--define='$define' $define_cmd"
+  done
+fi
+
+if [[ -n "$ROOTS" ]] ; then
+  for root in $ROOTS 
+  do
+    root_cmd="--root=$root $root_cmd"
+  done
+  echo $root_cmd
+fi
+
+
+
+if [[ -n "$EXTERNS" ]] ; then
+  for file in $EXTERNS 
+  do
+    extern_cmd="--compiler_flags=--externs=$file $extern_cmd"
+  done
+fi
+
+
+jsfile=$output_path/$2.$1.js
+latestfile=$output_path/$2.js
+rm $latestfile
+
+if [ "$1" = debug ] ; then
+	echo "making debug: $jsfile..."
+
+	if [ -n "$closure_lib_path" ] ; then
+    python "$closure_lib_path/closure/bin/build/closurebuilder.py" \
+      --root="$closure_lib_path/closure/" \
+      --root="$closure_lib_path/third_party/" \
+      $root_cmd \
+      $namespace_cmd \
+      --output_mode=script \
+      --output_file="$jsfile"
+  fi
+  cp $jsfile $latestfile
+elif [ "$1" = "test" ] ; then
+	echo "making test..."
+	rm -rf $output_path/test
+	mkdir $output_path/test
+
+	python "$closure_lib_path/closure/bin/calcdeps.py" \
+    --dep "$closure_lib_path" \
+    --path src/js/ \
+    --output_mode deps \
+    > $output_path/$1/deps.js
+    
+  absbasepath=$(python -c "import os.path; print os.path.abspath('$closure_lib_path/closure/goog/base.js');")
+
+	find src/js -iname '*_test.html' > "$output_path/$1/all_tests.html"
+	find src/js -iname '*_leaks.html' >> "$output_path/$1/all_tests.html"
+	while read file; 
+	  do 
+	    bname=$(basename $file)
+	    #out="$output_path/$1/$bname"
+	    out=${file%.html}c.html
+
+	    googbase=$(python -c "import os.path; print os.path.relpath('$absbasepath'.lower(), os.path.dirname('$PWD/$file'.lower()));")
+
+	    echo "<!doctype html><html><head><title>Test $bname</title></head><body><script src=\"$googbase\"></script><script>" > "$out"
+	    
+	    cat "$output_path/$1/deps.js" >> "$out"
+	    echo "</script>" >> "$out"
+	    cat "$file" >> "$out"
+	    echo "</body></html>" >> "$out"
+	    
+	    #Symbolic link to file
+	    ln -s "../../$out" "$output_path/$1/$bname"
+	    
+	  done < "$output_path/$1/all_tests.html"
+	  
+	  rm "$output_path/$1/all_tests.html"
+	  rm "$output_path/$1/deps.js"
+	  
+	
+
+elif [ "$1" = compiled ] ; then 
+	echo "making compiled..."
+	
+	define_cmd="--compiler_flags=--define='goog.DEBUG=true' $define_cmd"
+  echo "defines $define_cmd"
+
+	if [[ -n "$closure_lib_path" && -n "$closure_compiler_path" ]] ; then
+    python "$closure_lib_path/closure/bin/build/closurebuilder.py" \
+      --root="$closure_lib_path/closure/" \
+      --root="$closure_lib_path/third_party/" \
+      $root_cmd \
+      $namespace_cmd \
+      --output_mode=compiled \
+      --compiler_jar="$closure_compiler_path" \
+      --compiler_flags="--compilation_level=SIMPLE_OPTIMIZATIONS" \
+      --compiler_flags="--output_wrapper=\"(function() {%output%})();\"" \
+      $define_cmd \
+      $extern_cmd \
+      --output_file=$jsfile
+    cp $jsfile $latestfile
+  fi
+
+elif [ "$1" = min ] ; then 
+	echo "making min..."
+	
+  define_cmd="--compiler_flags=--define='goog.DEBUG=false' $define_cmd"
+  echo "defines $define_cmd"
+  
+	if [[ -n "$closure_lib_path" && -n "$closure_compiler_path" ]] ; then
+    python "$closure_lib_path/closure/bin/build/closurebuilder.py" \
+      --root="$closure_lib_path/closure/" \
+      --root="$closure_lib_path/third_party/" \
+      $root_cmd \
+      $namespace_cmd \
+      --output_mode=compiled \
+      --compiler_jar="$closure_compiler_path" \
+      --compiler_flags="--compilation_level=ADVANCED_OPTIMIZATIONS" \
+      --compiler_flags="--output_wrapper=\"(function() {%output%})();\"" \
+      $extern_cmd \
+      $define_cmd \
+      --output_file=$jsfile
+    cp $jsfile $latestfile
+  fi
+fi
+
+echo "done."

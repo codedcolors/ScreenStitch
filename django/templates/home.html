@@ -1,0 +1,129 @@
+<html lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<link href="/css/playgroundisopen.css" rel="stylesheet">
+{% include 'screenstitch/js.html' %}
+</head>
+<body>
+<div id="playground">
+  <div id="connection-indicator">Not connected</div>
+
+  <ul id="connection-options">
+    <li id="connect-with-code">Connect with email code</li>
+    <li id="connect-with-qr">Connect with qr code</li>
+  </ul>
+  
+  <div id="connection-instructions"></div>
+  <div id="message-container" style="font-size:30px;"></div>
+  <canvas id="drawing-area" width="600" height="600"></canvas>
+</div>   
+<script>
+  // Store dom elements we need to update
+  var statusEl = document.getElementById('connection-indicator');
+  var optionsEl = document.getElementById('connection-options');
+  var codeOptionEl = document.getElementById('connect-with-code');
+  var qrOptionEl = document.getElementById('connect-with-qr');
+  var instructionsEl = document.getElementById('connection-instructions');
+  var canvasEl = document.getElementById('drawing-area');
+  
+  // Create the host client which will send/receive message with a remote 
+  // client
+  var host = new screenstitch.Host();
+  
+  // Listen for drag messages, text messages, and status changes
+  host.listen(['dragstart', 'dragend', 'dragchange'], handleDrag);
+  host.listen('message', this.handleMessage);
+  host.listen('status', this.handleStatus);
+
+  // Finally try to do the initial connection
+  host.connect();
+
+  //this.connectionOptionsEl_.style.display = 'none';
+  instructionsEl.style.display = 'none';
+    
+  codeOptionEl.onclick = function() {
+      optionsEl.style.display = 'none';
+  
+      instructionsEl.innerHTML = 'Go to ' + host.getConnectUri() + 
+          ' on your mobile device and enter the code <b>' + 
+          host.getCode() + '</b>';
+    
+      host.waitForClient();
+    };
+    
+  qrOptionEl.onclick = function() {
+      optionsEl.style.display = 'none';
+      instructionsEl.appendChild(host.generateQrImage(200, 200));
+      host.waitForClient();
+    };
+
+
+  
+
+
+  // Here is code that will display drawing data we receive
+  var lastX = -1;
+  var lastY = -1;
+  function handleDrag(e) {
+    var ctx = canvasEl.getContext('2d');
+    var x = e.x;
+    var y = e.y;
+  
+    if (e.type === 'dragstart') {
+      lastX = x;
+      lastY = y;
+      //draw a circle
+      ctx.beginPath();
+      ctx.arc(x, y, 5, 0, Math.PI*2, true); 
+      ctx.closePath();
+      ctx.fill();
+    } else if (e.type === 'dragchange') {
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      lastX = x;
+      lastY = y;
+    } else if (e.type === 'dragend') {
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.rect(x - 5, y - 5, 10, 10);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+  
+  function handleMessage(e) {
+    document.getElementById('message-container').innerHTML = e.message;
+  }
+  
+  function handleStatus(e) {
+    var description = 'Invalid connection state.';
+
+    switch (host.getStatus()) {
+      case screenstitch.Status.CONTACTING:
+        description = 'Contacting server...';
+        break;
+      case screenstitch.Status.DISCONNECTED:
+        description = 'Disconnected.';
+        optionsEl.style.display = 'block';
+        instructionsEl.style.display = 'block';
+        instructionsEl.innerHTML = '';
+        break;
+      case screenstitch.Status.CONNECTING:
+        description = 'Waiting for mobile...';
+        break;
+      case screenstitch.Status.CONNECTED:
+        description = 'Connected.';
+        break;
+    }
+    
+    // Update the status
+    statusEl.innerHTML = description;
+  }
+</script>   
+</body>
+</html>

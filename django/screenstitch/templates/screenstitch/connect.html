@@ -1,0 +1,112 @@
+<html lang="en">
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+{% include 'screenstitch/js.html' %}
+</head>
+<body>
+
+<div>
+  <div id="connection-indicator">Not connected</div>
+  <div>
+    <input id="key-input" type="text" name="lname">
+    <input id="key-submit" type="submit" value="Connect">
+  </div>
+  <div>
+    <input id="message-input" type="text" name="lname">
+    <input id="message-submit" type="submit" value="Message">
+  </div>
+  <div id="drawing-area" style="display:inline-block; width:1000px; height: 1000px; border:1px solid #000;">
+  </div>
+</div>
+
+<script>
+  if (!navigator.cookieEnabled) {
+    alert('Cookies must be enabled');
+  }
+  
+  // Create this client which will act as a ui controller for a remote host.
+  var controller = new screenstitch.Controller();
+  
+  // Store dom elements we need to update
+  var statusEl = document.getElementById('connection-indicator');
+  var drawingEl = document.getElementById('drawing-area');
+  var submitKeyEl = document.getElementById('key-submit');
+  var submitMessageEl = document.getElementById('message-submit');
+  
+  // Listen for key submit
+  submitKeyEl.onclick = function(e) {
+      e.stopPropagation();
+      controller.connect(document.getElementById('key-input').value);
+    };
+    
+  // Listen for message submit
+  submitMessageEl.onclick = function(e) {
+      e.stopPropagation();
+      controller.sendEvent({type:'message', message:
+          document.getElementById('message-input').value});
+    };
+  
+  // Listen for status updates from controller so we can notify the user
+  controller.listen('status', function(e) {
+      var description = 'Invalid connection state.';
+  
+      switch (controller.getStatus()) {
+        case screenstitch.Status.CONTACTING:
+          description = 'Contacting server...';
+          break;
+        case screenstitch.Status.DISCONNECTED:
+          description = 'Disconnected.';
+          break;
+        case screenstitch.Status.CONNECTING:
+          description = 'Connecting to host...';
+          break;
+        case screenstitch.Status.CONNECTED:
+          description = 'Connected.';
+          break;
+      }
+      
+      // Update the status
+      statusEl.innerHTML = description;
+    });
+
+
+  // Finally attempt to connect if the server has already provided us the key
+  // for instance we visited /connect/2345
+  controller.connect();
+
+
+
+  // Listen to dragging, for continuous update example
+  var dragging = false;
+  var dragData = {x:0, y:0};
+  
+  drawingEl.onmousedown = drawingEl.ontouchstart = function(e) {
+      dragging = true;
+      if (e.targetTouches) e = e.targetTouches[0];
+      dragData.x = e.clientX;
+      dragData.y = e.clientY;
+      controller.sendEventStream('drag', dragData, '_start');
+    };
+
+  drawingEl.onmouseup = drawingEl.ontouchend = function(e) {
+      dragging = false;
+      if (e.targetTouches) e = e.targetTouches[0];
+      dragData.x = e.clientX;
+      dragData.y = e.clientY;
+      controller.sendEventStream('drag', dragData, '_end');
+    };
+  
+  drawingEl.onmousemove = drawingEl.ontouchmove = function(e) {
+      e.preventDefault(); // Prevent scrolling on mobile
+      if (dragging) {
+        if (e.targetTouches) e = e.targetTouches[0];
+        dragData.x = e.clientX;
+        dragData.y = e.clientY;
+        controller.sendEventStream('drag', dragData);
+      }
+    };
+
+
+</script>
+</body>
+</html>
